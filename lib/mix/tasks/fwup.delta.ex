@@ -13,8 +13,6 @@ defmodule Mix.Tasks.Fwup.Delta do
     mix fwup.delta my_old.fw my_new.fw
   """
 
-  use Mix.Task
-
   @impl Mix.Task
   def run(argv) do
     case argv do
