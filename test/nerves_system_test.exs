@@ -1,14 +1,36 @@
-defmodule FwupDeltaTest do
+defmodule FwupDelta.NervesSystemTest do
   use ExUnit.Case, async: true
 
-  @raw File.read!("test/fixtures/raw.conf")
-  @raw_add_file File.read!("test/fixtures/raw-add-file.conf")
-  @fat File.read!("test/fixtures/fat.conf")
-  @raw_encrypted File.read!("test/fixtures/raw-encrypted.conf")
-  @mixed File.read!("test/fixtures/mixed.conf")
-  @mixed_no_deltas File.read!("test/fixtures/mixed-no-deltas.conf")
-  @pi_style File.read!("test/fixtures/pi-style.conf")
-  @pi_style_delta File.read!("test/fixtures/pi-style-delta.conf")
+  # @supported_systems %{
+  #   "nerves_system_rpi" => "https://github.com/nerves-project/nerves_system_rpi",
+  #   "nerves_system_rpi0" => "https://github.com/nerves-project/nerves_system_rpi0",
+  #   "nerves_system_rpi2" => "https://github.com/nerves-project/nerves_system_rpi2",
+  #   "nerves_system_rpi3a" => "https://github.com/nerves-project/nerves_system_rpi3a",
+  #   "nerves_system_rpi3" => "https://github.com/nerves-project/nerves_system_rpi3",
+  #   "nerves_system_rpi4" => "https://github.com/nerves-project/nerves_system_rpi4",
+  #   "nerves_system_rpi5" => "https://github.com/nerves-project/nerves_system_rpi5",
+  #   "nerves_system_bbb" => "https://github.com/nerves-project/nerves_system_bbb",
+  #   "nerves_system_x86_64" => "https://github.com/nerves-project/nerves_system_x86_64",
+  #   "nerves_system_osd32mp1" => "https://github.com/nerves-project/nerves_system_osd32mp1",
+  #   "nerves_system_grisp2" => "https://github.com/nerves-project/nerves_system_grisp2",
+  #   "nerves_system_mangopi_mq_pro" =>
+  #     "https://github.com/nerves-project/nerves_system_mangopi_mq_pro"
+  # }
+
+  @default_targets [
+    "rpi",
+    "rpi0",
+    "rpi2",
+    "rpi3a",
+    "rpi3",
+    "rpi4",
+    "rpi5",
+    "bbb",
+    "x86_64",
+    "osd32mp1",
+    # "grisp2",
+    "mangopi_mq_pro"
+  ]
 
   setup_all do
     with path_1 when is_binary(path_1) <- System.find_executable("mdir"),
@@ -18,9 +40,27 @@ defmodule FwupDeltaTest do
       _ ->
         flunk("Please install mtools to run these tests.")
     end
+
+    tmp_dir = System.tmp_dir!()
+    path = Path.join(tmp_dir, "fwup_delta_nerves")
+    File.rm_rf(path)
+
+    {output, status} =
+      System.shell("yes | mix nerves.new fwup_delta_nerves",
+        cd: tmp_dir
+        # into: IO.stream()
+      )
+
+    if status != 0 do
+      IO.puts("Output:")
+      IO.puts(output)
+      flunk("Failed to create fwup_delta_nerves project")
+    end
+
+    {:ok, %{path: path}}
   end
 
-  describe "firmware archive and delta updates" do
+  describe "nerves official systems" do
     defp offsets(start, parts_with_sizes) do
       {offsets, _} =
         parts_with_sizes
@@ -61,8 +101,11 @@ defmodule FwupDeltaTest do
     end
 
     defp upgrade!(fw_path, image_path) do
+      IO.puts("Upgrading #{image_path} using #{fw_path}")
+
       case System.cmd("fwup", ["-a", "-d", image_path, "-i", fw_path, "-t", "upgrade"],
              stderr_to_stdout: true,
+             into: IO.stream(),
              env: []
            ) do
         {_, 0} ->
@@ -164,437 +207,90 @@ defmodule FwupDeltaTest do
 
     defp h(b), do: inspect(b, as: :binary, base: :hex)
 
-    @tag :tmp_dir
-    test "generate valid delta for fat", %{tmp_dir: dir} do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @fat)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      assert %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      upgrade!(delta_path, img_a)
-
-      offset_a = 4096
-      size_a = 154_476
-      assert compare_images?({img_b, offset_a, size_a}, {img_a, offset_a + size_a, size_a})
-    end
-
-    @tag :tmp_dir
-    test "generate valid delta for raw fwup config", %{tmp_dir: dir} do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @raw)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      assert %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      upgrade!(delta_path, img_a)
-
-      assert compare_images?({img_b, 1024, 1024}, {img_a, 2048, 1024})
-    end
-
-    @tag :tmp_dir
-    test "generate valid delta for raw with non-existant new file fwup config", %{tmp_dir: dir} do
-      source_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(source_conf_path, @raw)
-      target_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(target_conf_path, @raw_add_file)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), source_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), target_conf_path, data_path_2)
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      assert %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      upgrade!(delta_path, img_a)
-
-      assert compare_images?({img_b, 1024, 1024}, {img_a, 2048, 1024})
-    end
-
-    @tag :tmp_dir
-    @tag :mtools
-    test "generate valid delta for mixed fwup config", %{tmp_dir: dir} do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @mixed)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..50_000, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      new_data_2 = for _ <- 1..50_000, into: <<>>, do: random_bytes(36)
-      data_2 = data_1 <> new_data_2
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      assert %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      upgrade!(delta_path, img_a)
-
-      boot_size = 154_476
-      root_size = 20_480
-
-      [
-        boot_a: {boot_a_offset, _boot_a_size},
-        boot_b: {boot_b_offset, _boot_b_size},
-        root_a: {root_a_offset, root_a_size},
-        root_b: {root_b_offset, root_b_size}
-      ] =
-        offsets(4096,
-          boot_a: boot_size,
-          boot_b: boot_size,
-          root_a: root_size,
-          root_b: root_size
+    defp build!(path, target) do
+      {output, status} =
+        System.shell("mix deps.get && mix firmware",
+          cd: path,
+          env: [{"MIX_TARGET", target}]
+          # Comment this back in to debug output while running
+          # into: IO.stream()
         )
 
-      # Validate Boot A having been patched to match Boot B
-      assert same_fat_files?(dir, {img_a, boot_b_offset}, {img_b, boot_a_offset}, ["second"])
+      firmware_path = Path.join(path, "_build/#{target}_dev/nerves/images/fwup_delta_nerves.fw")
 
-      # Validate Root A having been patched to match Root B
-      assert compare_images?(
-               {img_b, root_a_offset, root_a_size},
-               {img_a, root_b_offset, root_b_size}
-             )
+      if status != 0 do
+        IO.puts("Build failed with status: #{status}")
+        IO.puts("Output:")
+        IO.puts(output)
+        flunk("Build failed")
+      end
+
+      {:ok, firmware_path}
     end
 
-    @tag :tmp_dir
-    @tag :mtools
-    test "generate valid delta for encrypted raw fwup config", %{tmp_dir: dir} do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @raw_encrypted)
+    for t <- @default_targets do
+      @tag :tmp_dir
+      @tag timeout: 240_000
+      test "build #{t}", %{path: path, tmp_dir: dir} do
+        target = unquote(t)
+        IO.puts("")
+        IO.puts("")
+        IO.puts("==== #{target} ====")
+        dir = Path.join(dir, target)
+        File.mkdir_p!(dir)
+        IO.puts("Building...")
+        {:ok, fw_path} = build!(path, target)
+        delta_path = Path.join(dir, "delta.fw")
+        %{size: base_size} = File.stat!(fw_path)
 
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
+        IO.puts("Generating delta...")
 
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      assert %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      upgrade!(delta_path, img_a)
-
-      assert compare_images?({img_b, 1024, 1024}, {img_a, 2048, 1024})
-    end
-
-    @tag :tmp_dir
-    @tag :mtools
-    test "do not generate delta for encrypted delta for incompatible config, missing encryption options",
+        {:ok,
          %{
-           tmp_dir: dir
-         } do
-      enc_conf_path = Path.join(dir, "a.conf")
-      File.write!(enc_conf_path, @raw_encrypted)
-      raw_conf_path = Path.join(dir, "b.conf")
-      File.write!(raw_conf_path, @raw)
+           filepath: delta_path,
+           fwup_metadata: meta,
+           size: delta_size,
+           source_size: ^base_size,
+           target_size: ^base_size
+         }} =
+          FwupDelta.do_generate(fw_path, fw_path, delta_path, dir)
 
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
+        IO.puts("")
+        IO.puts("== General ==")
 
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
+        assert %{size: ^delta_size} = File.stat!(delta_path)
 
-      fw_a = build_fw!(Path.join(dir, "a.fw"), enc_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), raw_conf_path, data_path_2)
+        if delta_size < base_size do
+          IO.puts("✅ Delta is smaller")
+        else
+          IO.puts("⚠️ Delta is larger")
+        end
 
-      {:error, [err]} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
+        IO.puts("Valid? #{bool(meta.valid?)}")
+        IO.puts("Required fwup version: #{meta.complete_fwup_version}")
+        IO.puts("Required fwup version for deltas: #{meta.delta_fwup_version}")
+        IO.puts("")
+        IO.puts("Encryption? #{bool(meta.encryption?)}")
+        IO.puts("")
+        IO.puts("== Deltas ==")
+        IO.puts("FAT deltas? #{bool(meta.fat_deltas?)}")
+        IO.puts("Raw deltas? #{bool(meta.raw_deltas?)}")
 
-      assert err =~
-               "Target uses raw deltas and source firmware uses encryption for the same resource but target firmware has no cipher or"
-    end
+        IO.puts("")
+        IO.puts("Applying complete task...")
+        img_a = complete!(fw_path, Path.join(dir, "a.img"))
+        hash_a = sha256sum(img_a)
 
-    @tag :tmp_dir
-    test "do not generate deltas if not enabled", %{tmp_dir: dir} do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @mixed_no_deltas)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..50_000, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      new_data_2 = for _ <- 1..50_000, into: <<>>, do: random_bytes(36)
-      data_2 = data_1 <> new_data_2
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-
-      {:error, :no_delta_support_in_firmware} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-    end
-
-    @tag :tmp_dir
-    test "verify that a firmware is delta updatable", %{tmp_dir: dir} do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @pi_style_delta)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      # Upgrade A to B
-      upgrade!(delta_path, img_a)
-      # Upgrading twice should make both slots identical
-      upgrade!(delta_path, img_a)
-
-      # Upgrade non-delta B to B, should make both slots identical
-      upgrade!(fw_b, img_b)
-      # Upgrade it again to match the slot situation/uboot-env
-      upgrade!(fw_b, img_b)
-
-      hash_a = sha256sum(img_a)
-      hash_b = sha256sum(img_b)
-      %{size: size_a} = File.stat!(img_a)
-      # -32 to skip uboot
-      fwup_size_a = trunc(size_a / 512) - 32
-      %{size: size_b} = File.stat!(img_b)
-      fwup_size_b = trunc(size_b / 512) - 32
-      assert compare_images?({img_a, 32, fwup_size_a}, {img_b, 32, fwup_size_b})
-      assert hash_a == hash_b
-    end
-
-    @tag :tmp_dir
-    @tag :mtools
-    test "verify that a firmware is not delta updatable but file generated is okay", %{
-      tmp_dir: dir
-    } do
-      fwup_conf_path = Path.join(dir, "fwup.conf")
-      File.write!(fwup_conf_path, @pi_style)
-
-      data_path_1 = Path.join(dir, "data-1")
-      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
-      File.write!(data_path_1, data_1)
-
-      data_path_2 = Path.join(dir, "data-2")
-      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
-      File.write!(data_path_2, data_2)
-
-      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
-      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
-
-      %{size: source_size} = File.stat!(fw_a)
-      %{size: target_size} = File.stat!(fw_b)
-
-      {:ok,
-       %{
-         filepath: delta_path,
-         fwup_metadata: %{},
-         size: delta_size,
-         source_size: ^source_size,
-         target_size: ^target_size
-       }} =
-        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
-
-      assert %{size: ^delta_size} = File.stat!(delta_path)
-
-      img_a = complete!(fw_a, Path.join(dir, "a.img"))
-      hash_a = sha256sum(img_a)
-      img_b = complete!(fw_b, Path.join(dir, "b.img"))
-      hash_b = sha256sum(img_b)
-
-      # fs images are different
-      assert hash_a != hash_b
-
-      # Upgrade A to B
-      upgrade!(delta_path, img_a)
-
-      # Upgrading twice should make both slots identical
-      upgrade!(delta_path, img_a)
-
-      # Upgrade non-delta B to B, should make both slots identical
-      upgrade!(fw_b, img_b)
-      # Upgrade it again to match the slot situation/uboot-env
-      upgrade!(fw_b, img_b)
-
-      boot_size = 77_260
-      root_size = 57_8088
-      app_size = 1_048_576
-
-      [
-        boot_a: {boot_a_offset, _boot_a_size},
-        boot_b: {boot_b_offset, _boot_b_size},
-        root_a: {root_a_offset, _root_a_size},
-        root_b: {root_b_offset, _root_b_size},
-        app: {_, _}
-      ] =
-        offsets(63,
-          boot_a: boot_size,
-          boot_b: boot_size,
-          root_a: root_size,
-          root_b: root_size,
-          app: app_size
-        )
-
-      # Validate Boot A having been patched to match Boot B
-      assert same_fat_files?(dir, {img_a, boot_b_offset}, {img_b, boot_a_offset}, ["first"])
-      assert compare_images?({img_a, root_b_offset, root_size}, {img_b, root_a_offset, root_size})
+        IO.puts("Applying upgrade task...")
+        upgrade!(delta_path, img_a)
+        hash_u = sha256sum(img_a)
+        assert hash_a != hash_u
+      end
     end
   end
+
+  defp bool(true), do: "✅"
+  defp bool(false), do: "❌"
 
   defp random_bytes(size) do
     :rand.bytes(size)

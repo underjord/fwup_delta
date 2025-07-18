@@ -64,6 +64,7 @@ defmodule FwupDelta.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:igniter, "~> 0.6", optional: true, runtime: false},
       {:nstandard, "~> 0.1"},
       {:confuse, "~> 0.1"},
       {:ex_doc, "~> 0.31", only: [:dev, :test], runtime: false},
