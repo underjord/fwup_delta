@@ -3,6 +3,8 @@ defmodule FwupDelta do
   Generate delta firmware files based on input source and target firmwares.
   """
 
+  alias FwupDelta.Process
+
   require Logger
 
   @type firmware() :: {:url, String.t()} | {:local, String.t()}
@@ -34,20 +36,15 @@ defmodule FwupDelta do
   end
 
   def do_generate(source_path, target_path, output_path, work_dir) do
-    source_work_dir = Path.join(work_dir, "source")
-    target_work_dir = Path.join(work_dir, "target")
-    output_work_dir = Path.join(work_dir, "output")
+    process =
+      work_dir
+      |> Process.new(source_path, target_path, output_path)
+      |> Process.create_work_dirs!()
+      |> Process.check_firmware_sizes!()
 
-    with :ok <- File.mkdir_p(work_dir),
-         :ok <- File.mkdir_p(source_work_dir),
-         :ok <- File.mkdir_p(target_work_dir),
-         :ok <- File.mkdir_p(output_work_dir),
-         {:ok, %{size: source_size}} <- File.stat(source_path),
-         {:ok, %{size: target_size}} <- File.stat(target_path),
-         {_, 0} <- System.cmd("unzip", ["-qq", source_path, "-d", source_work_dir], env: []),
-         {_, 0} <- System.cmd("unzip", ["-qq", target_path, "-d", target_work_dir], env: []),
-         {:ok, source_meta_conf} <- File.read(Path.join(source_work_dir, "meta.conf")),
-         {:ok, target_meta_conf} <- File.read(Path.join(target_work_dir, "meta.conf")),
+    with :ok <- unzip_to_dir(process.source_path, process.source_work_dir),
+         :ok <- unzip_to_dir(process.target_path, process.target_work_dir),
+         %Process{} = process <- Process.read_meta(process),
          {:ok, tool_metadata} <- get_tool_metadata(Path.join(target_work_dir, "meta.conf")),
          :ok <- Confuse.Fwup.validate_delta(source_meta_conf, target_meta_conf),
          {:ok, deltas} <- Confuse.Fwup.get_delta_files(Path.join(target_work_dir, "meta.conf")),
@@ -204,6 +201,13 @@ defmodule FwupDelta do
         {_, 0} = System.cmd("zip", args, cd: workdir, env: [])
 
         :ok
+    end
+  end
+
+  defp unzip_to_dir(path, workdir) do
+    case System.cmd("unzip", ["-qq", path, "-d", workdir], env: []) do
+      {_, 0} -> :ok
+      _ -> {:error, :unzip_failed}
     end
   end
 end
