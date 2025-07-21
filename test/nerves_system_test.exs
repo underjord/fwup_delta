@@ -45,32 +45,6 @@ defmodule FwupDelta.NervesSystemTest do
   end
 
   describe "nerves official systems" do
-    defp offsets(start, parts_with_sizes) do
-      {offsets, _} =
-        parts_with_sizes
-        |> Enum.reduce({[], start}, fn {field, size}, {fields, offset} ->
-          fields = [{field, {offset, size}} | fields]
-          {fields, offset + size}
-        end)
-
-      Enum.reverse(offsets)
-    end
-
-    defp build_fw!(path, fwup_path, data_path) do
-      case System.cmd("fwup", ["-c", "-f", fwup_path, "-o", path],
-             stderr_to_stdout: true,
-             env: [
-               {"TEST_1", data_path}
-             ]
-           ) do
-        {_, 0} ->
-          path
-
-        {output, status} ->
-          flunk("Error in fwup with status #{status}:\n#{output}")
-      end
-    end
-
     defp complete!(fw_path, image_path) do
       case System.cmd("fwup", ["-a", "-d", image_path, "-i", fw_path, "-t", "complete"],
              stderr_to_stdout: true,
@@ -104,92 +78,6 @@ defmodule FwupDelta.NervesSystemTest do
       data = File.read!(path)
       :sha256 |> :crypto.hash(data) |> Base.encode64()
     end
-
-    defp mcopy(img_path, offset, files, to_dir) do
-      File.mkdir_p(to_dir)
-
-      file_args =
-        files
-        |> Enum.map(fn file ->
-          "::#{file}"
-        end)
-
-      args = ["-i", "#{img_path}@@#{offset * 512}"] ++ file_args ++ [to_dir]
-      {_output, 0} = System.cmd("mdir", ["-i", "#{img_path}@@#{offset * 512}"], env: [])
-
-      {_, 0} =
-        System.cmd("mcopy", args, env: [])
-    end
-
-    defp same_fat_files?(base_dir, {img_a, offset_a}, {img_b, offset_b}, files) do
-      path_a = Path.join(base_dir, "fat_a")
-      path_b = Path.join(base_dir, "fat_b")
-      mcopy(img_a, offset_a, files, path_a)
-      mcopy(img_b, offset_b, files, path_b)
-
-      for file <- files do
-        a = File.read!(Path.join(path_a, file))
-        b = File.read!(Path.join(path_b, file))
-        assert a == b
-      end
-    end
-
-    defp compare_images?({img_a, offset_a, size_a}, {img_b, offset_b, size_b}) do
-      # fwup uses 512 byte blocks
-      offset_a = offset_a * 512
-      size_a = size_a * 512
-      offset_b = offset_b * 512
-      size_b = size_b * 512
-      data_a = File.read!(img_a)
-      data_b = File.read!(img_b)
-      <<_::binary-size(offset_a), d1::binary-size(size_a), _::binary>> = data_a
-      <<_::binary-size(offset_b), d2::binary-size(size_b), _::binary>> = data_b
-      compare_data?(d1, d2, 0, true)
-    end
-
-    defp compare_data?(
-           <<chunk_1::binary-size(512), d1::binary>>,
-           <<chunk_2::binary-size(512), d2::binary>>,
-           offset,
-           valid?
-         ) do
-      valid? =
-        if chunk_1 != chunk_2 do
-          IO.puts("Difference at offset: #{offset} (#{trunc(offset / 512)})")
-          find_diff(chunk_1, chunk_2)
-          false
-        else
-          valid?
-        end
-
-      compare_data?(d1, d2, offset + 512, valid?)
-    end
-
-    defp compare_data?(<<chunk_1::binary>>, <<chunk_2::binary>>, offset, valid?) do
-      if chunk_1 != chunk_2 do
-        IO.puts("Difference at final offset: #{offset} (#{trunc(offset / 512)})")
-        find_diff(chunk_1, chunk_2)
-        false
-      else
-        valid?
-      end
-    end
-
-    defp find_diff(chunk_1, chunk_2, byte \\ 0) do
-      case {chunk_1, chunk_2} do
-        {<<b1::8, r1::binary>>, <<b2::8, r2::binary>>} when b1 == b2 ->
-          find_diff(r1, r2, byte + 1)
-
-        {<<b1::8, r1::binary>>, <<b2::8, r2::binary>>} when b1 != b2 ->
-          IO.puts("#{byte} @\t\t#{h(b1)}  #{h(b2)}")
-          find_diff(r1, r2, byte + 1)
-
-        {<<>>, <<>>} ->
-          :ok
-      end
-    end
-
-    defp h(b), do: inspect(b, as: :binary, base: :hex)
 
     defp build!(path, target) do
       {output, status} =
@@ -275,8 +163,4 @@ defmodule FwupDelta.NervesSystemTest do
 
   defp bool(true), do: "✅"
   defp bool(false), do: "❌"
-
-  defp random_bytes(size) do
-    :rand.bytes(size)
-  end
 end
