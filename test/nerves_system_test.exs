@@ -1,22 +1,6 @@
 defmodule FwupDelta.NervesSystemTest do
   use ExUnit.Case, async: true
 
-  # @supported_systems %{
-  #   "nerves_system_rpi" => "https://github.com/nerves-project/nerves_system_rpi",
-  #   "nerves_system_rpi0" => "https://github.com/nerves-project/nerves_system_rpi0",
-  #   "nerves_system_rpi2" => "https://github.com/nerves-project/nerves_system_rpi2",
-  #   "nerves_system_rpi3a" => "https://github.com/nerves-project/nerves_system_rpi3a",
-  #   "nerves_system_rpi3" => "https://github.com/nerves-project/nerves_system_rpi3",
-  #   "nerves_system_rpi4" => "https://github.com/nerves-project/nerves_system_rpi4",
-  #   "nerves_system_rpi5" => "https://github.com/nerves-project/nerves_system_rpi5",
-  #   "nerves_system_bbb" => "https://github.com/nerves-project/nerves_system_bbb",
-  #   "nerves_system_x86_64" => "https://github.com/nerves-project/nerves_system_x86_64",
-  #   "nerves_system_osd32mp1" => "https://github.com/nerves-project/nerves_system_osd32mp1",
-  #   "nerves_system_grisp2" => "https://github.com/nerves-project/nerves_system_grisp2",
-  #   "nerves_system_mangopi_mq_pro" =>
-  #     "https://github.com/nerves-project/nerves_system_mangopi_mq_pro"
-  # }
-
   @default_targets [
     "rpi",
     "rpi0",
@@ -28,7 +12,7 @@ defmodule FwupDelta.NervesSystemTest do
     "bbb",
     "x86_64",
     "osd32mp1",
-    # "grisp2",
+    "grisp2",
     "mangopi_mq_pro"
   ]
 
