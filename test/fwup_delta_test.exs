@@ -594,6 +594,41 @@ defmodule FwupDeltaTest do
       assert same_fat_files?(dir, {img_a, boot_b_offset}, {img_b, boot_a_offset}, ["first"])
       assert compare_images?({img_a, root_b_offset, root_size}, {img_b, root_a_offset, root_size})
     end
+
+    @tag :tmp_dir
+    test "delta files are inserted in order", %{tmp_dir: dir} do
+      fwup_conf_path = Path.join(dir, "fwup.conf")
+      File.write!(fwup_conf_path, @mixed)
+
+      data_path_1 = Path.join(dir, "data-1")
+      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
+      File.write!(data_path_1, data_1)
+
+      data_path_2 = Path.join(dir, "data-2")
+      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
+      File.write!(data_path_2, data_2)
+
+      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
+      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
+      %{size: source_size} = File.stat!(fw_a)
+      %{size: target_size} = File.stat!(fw_b)
+
+      {:ok,
+       %{
+         filepath: delta_path,
+         fwup_metadata: %{},
+         source_size: ^source_size,
+         target_size: ^target_size
+       }} =
+        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
+
+      assert {"""
+              meta.conf
+              data/first
+              data/second
+              data/
+              """, 0} = System.cmd("unzip", ["-Z1", delta_path])
+    end
   end
 
   defp random_bytes(size) do

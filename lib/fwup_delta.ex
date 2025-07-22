@@ -52,6 +52,7 @@ defmodule FwupDelta do
          {:ok, %{size: target_size}} <- File.stat(target_path),
          {_, 0} <- System.cmd("unzip", ["-qq", source_path, "-d", source_work_dir], env: []),
          {_, 0} <- System.cmd("unzip", ["-qq", target_path, "-d", target_work_dir], env: []),
+         {files_list, 0} <- System.cmd("unzip", ["-Z1", target_path], env: []),
          {:ok, source_meta_conf} <- File.read(Path.join(source_work_dir, "meta.conf")),
          {:ok, target_meta_conf} <- File.read(Path.join(target_work_dir, "meta.conf")),
          {:ok, tool_metadata} <- get_tool_metadata(Path.join(target_work_dir, "meta.conf")),
@@ -114,11 +115,11 @@ defmodule FwupDelta do
       # 1. meta.conf.ed25519 (optional)
       # 2. meta.conf
       # 3. other...
-      [
-        "meta.conf.*",
-        "meta.conf",
-        "data"
-      ]
+      # so we grab the order of the target firmware from the zip/fw file
+
+      files_list
+      |> String.split("\n")
+      |> Enum.map(&String.trim/1)
       |> Enum.each(&add_to_zip(&1, output_work_dir, output_path))
 
       {:ok, %{size: size}} = File.stat(output_path)
