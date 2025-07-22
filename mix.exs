@@ -48,8 +48,8 @@ defmodule FwupDelta.MixProject do
         "format --check-formatted",
         "credo",
         "deps.unlock --check-unused",
-        "spellweaver.check",
-        "dialyzer"
+        "dialyzer",
+        "spellweaver.check"
       ]
     ]
   end

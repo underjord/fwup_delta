@@ -33,6 +33,12 @@ defmodule FwupDelta do
     end
   end
 
+  @spec do_generate(
+          source_path :: String.t(),
+          target_path :: String.t(),
+          output_path :: String.t(),
+          work_dir :: String.t()
+        ) :: {:ok, delta_created()} | {:error, term()}
   def do_generate(source_path, target_path, output_path, work_dir) do
     source_work_dir = Path.join(work_dir, "source")
     target_work_dir = Path.join(work_dir, "target")
@@ -128,11 +134,11 @@ defmodule FwupDelta do
     end
   end
 
-  def fetch({:url, url}) do
+  defp fetch({:url, url}) do
     download(url)
   end
 
-  def fetch({:local, local_path}) do
+  defp fetch({:local, local_path}) do
     case File.stat(local_path) do
       {:ok, _} ->
         {:ok, local_path}
@@ -147,19 +153,18 @@ defmodule FwupDelta do
     filename = "#{System.unique_integer([:positive])}.fw"
     filepath = Path.join(dir, filename)
 
-    {:ok, :saved_to_file} =
-      case :httpc.request(
-             :get,
-             {url |> to_charlist, []},
-             [],
-             stream: filepath |> to_charlist
-           ) do
-        {:ok, :saved_to_file} ->
-          {:ok, filepath}
+    case :httpc.request(
+           :get,
+           {url |> to_charlist, []},
+           [],
+           stream: filepath |> to_charlist
+         ) do
+      {:ok, :saved_to_file} ->
+        {:ok, filepath}
 
-        reason ->
-          {:error, {:download_failed, reason}}
-      end
+      reason ->
+        {:error, {:download_failed, reason}}
+    end
   end
 
   defp get_tool_metadata(meta_conf_path) do

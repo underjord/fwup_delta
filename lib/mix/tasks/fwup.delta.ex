@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Fwup.Delta do
-  use Mix.Task
-
   @shortdoc "Generate fwup delta between two firmware versions."
 
   @moduledoc """
@@ -12,6 +10,8 @@ defmodule Mix.Tasks.Fwup.Delta do
   Example:
     mix fwup.delta my_old.fw my_new.fw
   """
+
+  use Mix.Task
 
   @impl Mix.Task
   def run(argv) do
