@@ -23,7 +23,13 @@ defmodule FwupDelta do
 
   @spec generate(firmware(), firmware()) :: {:ok, delta_created()} | {:error, term()}
   def generate(source, target) do
-    dir = Path.join(System.tmp_dir!(), to_string(System.unique_integer([:positive])))
+    dir =
+      Path.join([
+        System.tmp_dir!(),
+        DateTime.to_iso8601(DateTime.utc_now()),
+        to_string(System.unique_integer([:positive]))
+      ])
+
     :ok = File.mkdir_p(dir)
     output_path = Path.join(dir, "delta.fw")
 
