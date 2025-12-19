@@ -64,6 +64,8 @@ defmodule FwupDelta do
          {:ok, tool_metadata} <- get_tool_metadata(Path.join(target_work_dir, "meta.conf")),
          :ok <- Confuse.Fwup.validate_delta(source_meta_conf, target_meta_conf),
          {:ok, deltas} <- Confuse.Fwup.get_delta_files(Path.join(target_work_dir, "meta.conf")),
+         {:ok, task_files} <-
+           Confuse.Fwup.get_upgrade_task_files(Path.join(target_work_dir, "meta.conf")),
          {:ok, all_delta_files} <- delta_files(deltas) do
       Logger.info("Generating delta for files: #{Enum.join(all_delta_files, ", ")}")
 
@@ -112,7 +114,12 @@ defmodule FwupDelta do
                       File.cp!(target_filepath, output_path)
                   end
                 else
-                  File.cp!(Path.join(target_work_dir, path), Path.join(output_work_dir, path))
+                  if subpath in task_files do
+                    File.cp!(Path.join(target_work_dir, path), Path.join(output_work_dir, path))
+                  else
+                    # Skip the file, it isn't actually used for the upgrade task
+                    :ok
+                  end
                 end
             end
         end
