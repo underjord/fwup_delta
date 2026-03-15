@@ -9,6 +9,7 @@ defmodule FwupDeltaTest do
   @mixed_no_deltas File.read!("test/fixtures/mixed-no-deltas.conf")
   @pi_style File.read!("test/fixtures/pi-style.conf")
   @pi_style_delta File.read!("test/fixtures/pi-style-delta.conf")
+  @pi_style_delta_exclude File.read!("test/fixtures/pi-style-delta-exclude.conf")
 
   setup_all do
     with path_1 when is_binary(path_1) <- System.find_executable("mdir"),
@@ -593,6 +594,64 @@ defmodule FwupDeltaTest do
       # Validate Boot A having been patched to match Boot B
       assert same_fat_files?(dir, {img_a, boot_b_offset}, {img_b, boot_a_offset}, ["first"])
       assert compare_images?({img_a, root_b_offset, root_size}, {img_b, root_a_offset, root_size})
+    end
+
+    @tag :tmp_dir
+    test "unused files are excluded from delta", %{tmp_dir: dir} do
+      fwup_conf_path = Path.join(dir, "fwup.conf")
+      File.write!(fwup_conf_path, @pi_style_delta_exclude)
+
+      data_path_1 = Path.join(dir, "data-1")
+      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
+      File.write!(data_path_1, data_1)
+
+      data_path_2 = Path.join(dir, "data-2")
+      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
+      File.write!(data_path_2, data_2)
+
+      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
+      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
+
+      {:ok,
+       %{
+         filepath: delta_path
+       }} =
+        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
+
+      {files_output, 0} = System.cmd("unzip", ["-Z1", delta_path])
+      data_files = files_output |> String.split("\n") |> Enum.map(&String.trim/1)
+
+      # delta files included (used in upgrade tasks)
+      assert "data/first" in data_files
+      assert "data/second" in data_files
+      # non-delta file included (used in upgrade tasks)
+      assert "data/fourth" in data_files
+      # unused file excluded (only in complete task)
+      refute "data/third" in data_files
+    end
+
+    @tag :tmp_dir
+    test "unused files exclusion results in smaller delta", %{tmp_dir: dir} do
+      fwup_conf_path = Path.join(dir, "fwup.conf")
+      File.write!(fwup_conf_path, @pi_style_delta_exclude)
+
+      data_path_1 = Path.join(dir, "data-1")
+      data_1 = for _ <- 1..100, into: <<>>, do: random_bytes(36)
+      File.write!(data_path_1, data_1)
+
+      data_path_2 = Path.join(dir, "data-2")
+      data_2 = for _ <- 1..100, into: data_1, do: random_bytes(36)
+      File.write!(data_path_2, data_2)
+
+      fw_a = build_fw!(Path.join(dir, "a.fw"), fwup_conf_path, data_path_1)
+      fw_b = build_fw!(Path.join(dir, "b.fw"), fwup_conf_path, data_path_2)
+      %{size: target_size} = File.stat!(fw_b)
+
+      {:ok, %{size: delta_size}} =
+        FwupDelta.do_generate(fw_a, fw_b, Path.join(dir, "delta.fw"), Path.join(dir, "work"))
+
+      # Delta should be smaller than the target since unused files are excluded
+      assert delta_size < target_size
     end
 
     @tag :tmp_dir

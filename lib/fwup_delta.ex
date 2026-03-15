@@ -58,7 +58,9 @@ defmodule FwupDelta do
          {:ok, tool_metadata} <- get_tool_metadata(Path.join(target_work_dir, "meta.conf")),
          :ok <- Confuse.Fwup.validate_delta(source_meta_conf, target_meta_conf),
          {:ok, deltas} <- Confuse.Fwup.get_delta_files(Path.join(target_work_dir, "meta.conf")),
-         {:ok, all_delta_files} <- delta_files(deltas) do
+         {:ok, all_delta_files} <- delta_files(deltas),
+         {:ok, files_used} <-
+           Confuse.Fwup.get_upgrade_tasks_files_from_config(target_meta_conf) do
       Logger.info("Generating delta for files: #{Enum.join(all_delta_files, ", ")}")
 
       _ =
@@ -77,36 +79,40 @@ defmodule FwupDelta do
                 File.cp!(Path.join(target_work_dir, path), Path.join(output_work_dir, path))
 
               "data/" <> subpath ->
-                if subpath in all_delta_files do
-                  source_filepath = Path.join(source_work_dir, path)
-                  target_filepath = Path.join(target_work_dir, path)
-
-                  case File.stat(source_filepath) do
-                    {:ok, %{size: f_source_size}} ->
-                      args = [
-                        "-A",
-                        "-S",
-                        "-f",
-                        "-s",
-                        source_filepath,
-                        target_filepath,
-                        output_path
-                      ]
-
-                      %{size: f_target_size} = File.stat!(target_filepath)
-
-                      {_, 0} = System.cmd("xdelta3", args, stderr_to_stdout: true, env: [])
-                      %{size: f_delta_size} = File.stat!(output_path)
-
-                      Logger.info(
-                        "Generated delta for #{path}, from #{Float.round(f_source_size / 1024 / 1024, 1)} MB to #{Float.round(f_target_size / 1024 / 1024, 1)} MB via delta of #{Float.round(f_delta_size / 1024 / 1024, 1)} MB"
-                      )
-
-                    {:error, :enoent} ->
-                      File.cp!(target_filepath, output_path)
-                  end
+                if subpath not in files_used do
+                  Logger.info("Excluding unused file from delta: #{path}")
                 else
-                  File.cp!(Path.join(target_work_dir, path), Path.join(output_work_dir, path))
+                  if subpath in all_delta_files do
+                    source_filepath = Path.join(source_work_dir, path)
+                    target_filepath = Path.join(target_work_dir, path)
+
+                    case File.stat(source_filepath) do
+                      {:ok, %{size: f_source_size}} ->
+                        args = [
+                          "-A",
+                          "-S",
+                          "-f",
+                          "-s",
+                          source_filepath,
+                          target_filepath,
+                          output_path
+                        ]
+
+                        %{size: f_target_size} = File.stat!(target_filepath)
+
+                        {_, 0} = System.cmd("xdelta3", args, stderr_to_stdout: true, env: [])
+                        %{size: f_delta_size} = File.stat!(output_path)
+
+                        Logger.info(
+                          "Generated delta for #{path}, from #{Float.round(f_source_size / 1024 / 1024, 1)} MB to #{Float.round(f_target_size / 1024 / 1024, 1)} MB via delta of #{Float.round(f_delta_size / 1024 / 1024, 1)} MB"
+                        )
+
+                      {:error, :enoent} ->
+                        File.cp!(target_filepath, output_path)
+                    end
+                  else
+                    File.cp!(Path.join(target_work_dir, path), Path.join(output_work_dir, path))
+                  end
                 end
             end
         end
