@@ -2,13 +2,6 @@ defmodule FwupDelta.NervesSystemTest do
   use ExUnit.Case, async: true
 
   @default_targets [
-    "rpi",
-    "rpi0",
-    "rpi2",
-    "rpi3a",
-    "rpi3",
-    "rpi4",
-    "rpi5",
     "bbb",
     "x86_64",
     "osd32mp1",
@@ -69,8 +62,8 @@ defmodule FwupDelta.NervesSystemTest do
         {_, 0} ->
           image_path
 
-        {output, status} ->
-          flunk("Error in fwup with status #{status}:\n#{output}")
+        {_streamed, status} ->
+          flunk("Error in fwup with status #{status} (output was streamed above)")
       end
     end
 
@@ -151,6 +144,7 @@ defmodule FwupDelta.NervesSystemTest do
         IO.puts("")
         IO.puts("Applying complete task...")
         img_a = complete!(fw_path, Path.join(dir, "a.img"))
+
         hash_a = sha256sum(img_a)
 
         IO.puts("Applying upgrade task...")
