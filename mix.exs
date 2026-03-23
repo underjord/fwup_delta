@@ -66,7 +66,7 @@ defmodule FwupDelta.MixProject do
     [
       {:igniter, "~> 0.6", optional: true, runtime: false},
       {:nstandard, "~> 0.1"},
-      {:confuse, "~> 0.1"},
+      {:confuse, "~> 0.3"},
       {:ex_doc, "~> 0.31", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
