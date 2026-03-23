@@ -49,7 +49,14 @@ defmodule FwupDelta.QemuDeltaTest do
       Path.join(path, "_build/#{@target}_dev/nerves/images/fwup_delta_qemu.fw")
 
     bootloader =
-      [System.user_home!(), ".nerves", "artifacts", "nerves_system_#{@target}-*", "images", "little_loader.elf"]
+      [
+        System.user_home!(),
+        ".nerves",
+        "artifacts",
+        "nerves_system_#{@target}-*",
+        "images",
+        "little_loader.elf"
+      ]
       |> Path.join()
       |> Path.wildcard()
       |> List.last()
@@ -131,16 +138,26 @@ defmodule FwupDelta.QemuDeltaTest do
           :stderr_to_stdout,
           :exit_status,
           args: [
-            "-machine", machine,
-            "-cpu", cpu,
-            "-smp", "1",
-            "-m", "256M",
-            "-kernel", bootloader,
-            "-netdev", "user,id=eth0,hostfwd=tcp:127.0.0.1:#{@ssh_port}-:22",
-            "-device", "virtio-net-device,netdev=eth0,mac=fe:db:ed:de:d0:01",
-            "-global", "virtio-mmio.force-legacy=false",
-            "-drive", "if=none,file=#{disk_path},format=raw,id=vdisk",
-            "-device", "virtio-blk-device,drive=vdisk,bus=virtio-mmio-bus.0",
+            "-machine",
+            machine,
+            "-cpu",
+            cpu,
+            "-smp",
+            "1",
+            "-m",
+            "256M",
+            "-kernel",
+            bootloader,
+            "-netdev",
+            "user,id=eth0,hostfwd=tcp:127.0.0.1:#{@ssh_port}-:22",
+            "-device",
+            "virtio-net-device,netdev=eth0,mac=fe:db:ed:de:d0:01",
+            "-global",
+            "virtio-mmio.force-legacy=false",
+            "-drive",
+            "if=none,file=#{disk_path},format=raw,id=vdisk",
+            "-device",
+            "virtio-blk-device,drive=vdisk,bus=virtio-mmio-bus.0",
             "-nographic"
           ]
         ]
@@ -239,7 +256,10 @@ defmodule FwupDelta.QemuDeltaTest do
     if status == 0 or attempts == 1 do
       {output, status}
     else
-      IO.puts("SSH upload attempt failed (#{attempts - 1} retries left): #{String.slice(output, 0..200)}")
+      IO.puts(
+        "SSH upload attempt failed (#{attempts - 1} retries left): #{String.slice(output, 0..200)}"
+      )
+
       upload_firmware(fw_path, attempts - 1)
     end
   end

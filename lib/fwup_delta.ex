@@ -65,7 +65,7 @@ defmodule FwupDelta do
          :ok <- Confuse.Fwup.validate_delta(source_meta_conf, target_meta_conf),
          {:ok, deltas} <- Confuse.Fwup.get_delta_files(Path.join(target_work_dir, "meta.conf")),
          {:ok, task_files} <-
-           Confuse.Fwup.get_upgrade_task_files(Path.join(target_work_dir, "meta.conf")),
+           Confuse.Fwup.get_upgrade_tasks_files_from_config(target_meta_conf),
          {:ok, all_delta_files} <- delta_files(deltas) do
       Logger.info("Generating delta for files: #{Enum.join(all_delta_files, ", ")}")
 
