@@ -44,6 +44,6 @@ Mix.install([:fwup_delta])
 {:ok, %{filepath: delta_fw}} = FwupDelta.generate({:local, "firmware-v1.0.fw"}, {:local, "firmware-v2.0.fw"})
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/fwup_delta>.
+## Checking capabilities of the current fwup install
+
+If you need to determine if a fwup_delta delta will with the version of fwup installed on a device that is best done with the `confuse` library which offers [Confuse.get_features_usage/1](https://hexdocs.pm/confuse/Confuse.Fwup.html#get_feature_usage/1) for this. The `confuse` library has various utilities for interpreting fwup.conf files and the meta.conf included in `.fw` files made by fwup. This is the mechanism used in NervesHub to determine if a delta is possible for a particular fwup config.
